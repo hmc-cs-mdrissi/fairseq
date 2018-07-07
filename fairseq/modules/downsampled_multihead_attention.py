@@ -42,14 +42,18 @@ class SingleHeadAttention(nn.Module):
             out_proj_size = self.head_dim
         else:
             out_proj_size = self.head_dim * self.num_heads
-        if self.gated:
-            k_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias=bias))
-            self.in_proj_q = GatedLinear(self.embed_dim, out_proj_size, bias=bias)
-            v_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias=bias))
-        else:
-            k_layers.append(Linear(self.embed_dim, out_proj_size, bias=bias))
-            self.in_proj_q = Linear(self.embed_dim, out_proj_size, bias=bias)
-            v_layers.append(Linear(self.embed_dim, out_proj_size, bias=bias))
+        
+        if self.project_input:
+            if self.gated:
+                k_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias=bias))
+                self.in_proj_q = GatedLinear(self.embed_dim, out_proj_size, bias=bias)
+                v_layers.append(GatedLinear(self.embed_dim, out_proj_size, bias=bias))
+            else:
+                k_layers.append(Linear(self.embed_dim, out_proj_size, bias=bias))
+                self.in_proj_q = Linear(self.embed_dim, out_proj_size, bias=bias)
+                v_layers.append(Linear(self.embed_dim, out_proj_size, bias=bias))
+        elif self.gated:
+            raise ValueError("You can't have both gated as True and project_input as False.")
 
         self.in_proj_k = nn.Sequential(*k_layers)
         self.in_proj_v = nn.Sequential(*v_layers)
