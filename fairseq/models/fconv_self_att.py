@@ -138,7 +138,7 @@ class FConvEncoder(FairseqEncoder):
     def __init__(
         self, dictionary, embed_dim=512, max_positions=1024,
         convolutions=((512, 3),) * 20, dropout=0.1, attention=False,
-        attention_nheads=1, left_pad=True,
+        attention_nheads=1, project_input=False, left_pad=True,
     ):
         super().__init__(dictionary)
         self.dropout = dropout
@@ -168,7 +168,6 @@ class FConvEncoder(FairseqEncoder):
         self.projections = nn.ModuleList()
         self.convolutions = nn.ModuleList()
         self.attention = nn.ModuleList()
-        self.attproj = nn.ModuleList()
         for i, (out_channels, kernel_size) in enumerate(convolutions):
             self.projections.append(
                 Linear(in_channels, out_channels) if in_channels != out_channels else None
@@ -178,7 +177,7 @@ class FConvEncoder(FairseqEncoder):
             )
 
             self.attention.append(
-                SelfAttention(out_channels, embed_dim, attention_nheads) if attention[i] else None
+                SelfAttention(out_channels, embed_dim, attention_nheads, project_input=project_input) if attention[i] else None
             )
             in_channels = out_channels
 
