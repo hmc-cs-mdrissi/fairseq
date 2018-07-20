@@ -73,7 +73,7 @@ def main(args):
     # Load ensemble
     print('| loading model(s) from {}'.format(args.path))
     model_paths = args.path.split(':')
-    models, model_args = utils.load_ensemble_for_inference(model_paths, task)
+    models, model_args = utils.load_ensemble_for_inference(model_paths, task, model_arg_overrides=eval(args.model_overrides))
 
     # Set dictionaries
     src_dict = task.source_dictionary
@@ -93,7 +93,7 @@ def main(args):
         models, tgt_dict, beam_size=args.beam, stop_early=(not args.no_early_stop),
         normalize_scores=(not args.unnormalized), len_penalty=args.lenpen,
         unk_penalty=args.unkpen, sampling=args.sampling, sampling_topk=args.sampling_topk,
-        minlen=args.min_len,
+        minlen=args.min_len, sampling_temperature=args.sampling_temperature
     )
 
     if use_cuda:
