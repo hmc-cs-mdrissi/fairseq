@@ -9,7 +9,8 @@ from .dictionary import Dictionary
 from .fairseq_dataset import FairseqDataset
 from .indexed_dataset import IndexedInMemoryDataset, IndexedRawTextDataset
 from .language_pair_dataset import LanguagePairDataset
+from .story_dataset import StoryDataset, StoryOutlineDataset, HierarchicalStoryDataset
 from .monolingual_dataset import MonolingualDataset
 from .token_block_dataset import TokenBlockDataset
 
-from .data_utils import EpochBatchIterator
+from .data_utils import EpochBatchIterator, ParagraphEpochBatchIterator

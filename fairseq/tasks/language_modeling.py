@@ -10,7 +10,7 @@ import os
 from fairseq import tokenizer
 from fairseq.data import (
     Dictionary, IndexedInMemoryDataset, IndexedRawTextDataset,
-    MonolingualDataset, TokenBlockDataset,
+    MonolingualDataset, TokenBlockDataset, EpochBatchIterator
 )
 
 from . import FairseqTask, register_task
@@ -62,6 +62,14 @@ class LanguageModelingTask(FairseqTask):
             include_targets=True,  # return next tokens as targets
         )
         self.datasets[split] = MonolingualDataset(dataset, dataset.sizes, self.dictionary, shuffle=False)
+
+    def build_epoch_itr(self, max_positions):
+        return EpochBatchIterator(dataset=self.dataset(self.args.train_subset), max_tokens=self.args.max_tokens,
+                                  max_sentences=self.args.max_sentences_valid, max_positions=max_positions,
+                                  ignore_invalid_inputs=True, required_batch_size_multiple=8,
+                                  seed=self.args.seed, num_shards=self.args.distributed_world_size,
+                                  shard_id=self.args.distributed_rank,
+                                  )
 
     @property
     def target_dictionary(self):

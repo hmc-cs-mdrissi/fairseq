@@ -55,17 +55,7 @@ def main(args):
 
     # Initialize dataloader
     max_positions = trainer.get_model().max_positions()
-    epoch_itr = data.EpochBatchIterator(
-        dataset=task.dataset(args.train_subset),
-        max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences_valid,
-        max_positions=max_positions,
-        ignore_invalid_inputs=True,
-        required_batch_size_multiple=8,
-        seed=args.seed,
-        num_shards=args.distributed_world_size,
-        shard_id=args.distributed_rank,
-    )
+    epoch_itr = task.build_epoch_itr(max_positions)
 
     # Load the latest checkpoint if one is available
     load_checkpoint(args, trainer, epoch_itr)

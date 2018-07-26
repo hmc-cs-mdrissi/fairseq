@@ -16,7 +16,7 @@ from fairseq.modules import (
     DownsampledMultiHeadAttention, GradMultiply, LearnedPositionalEmbedding,
     LinearizedConvolution,
 )
-from fairseq import utils
+from fairseq import utils, pdb
 
 from . import (
     FairseqEncoder, CompositeEncoder, FairseqDecoder, FairseqModel,
@@ -75,11 +75,16 @@ class FConvModelSelfAtt(FairseqModel):
                             help='path to load checkpoint from pretrained model')
         parser.add_argument('--pretrained', type=str, metavar='EXPR',
                             help='use pretrained model when training [True, ...]')
+        parser.add_argument('--hierarchical-attention', type=str, metavar='EXPR',
+                            help='decoder hierarchical attention [True, ...]')
+        parser.add_argument('--sentence-copy', type=bool, metavar='BOOL',
+                            help='Have a mechanism to allow copying sentences. This requires that hierarchical attention is true for the last layer.')
 
     @classmethod
     def build_model(cls, args, task):
         trained_encoder, trained_decoder = None, None
         pretrained = eval(args.pretrained)
+        hierarchical_attention = eval(args.hierarchical_attention)
         if pretrained:
             print("| loading pretrained model")
             trained_model = utils.load_ensemble_for_inference(
@@ -96,6 +101,8 @@ class FConvModelSelfAtt(FairseqModel):
             for param in trained_encoder.parameters():
                 param.requires_grad = False
 
+        encoder_hierarchical_attention = hierarchical_attention is True or (isinstance(hierarchical_attention, list) and any(hierarchical_attention)) or args.sentence_copy
+
         """Build a new model instance."""
         encoder = FConvEncoder(
             task.source_dictionary,
@@ -104,7 +111,8 @@ class FConvModelSelfAtt(FairseqModel):
             dropout=args.dropout,
             max_positions=args.max_source_positions,
             attention=eval(args.encoder_attention),
-            attention_nheads=args.encoder_attention_nheads
+            attention_nheads=args.encoder_attention_nheads,
+            hierarchical_attention=encoder_hierarchical_attention
         )
 
         decoder = FConvDecoder(
@@ -122,7 +130,9 @@ class FConvModelSelfAtt(FairseqModel):
             gated_attention=eval(args.gated_attention),
             downsample=eval(args.downsample),
             pretrained=pretrained,
-            trained_decoder=trained_decoder
+            trained_decoder=trained_decoder,
+            hierarchical_attention=hierarchical_attention,
+            sentence_copy=args.sentence_copy
         )
         model = FConvModelSelfAtt(encoder, decoder, trained_encoder)
 
@@ -139,14 +149,17 @@ class FConvEncoder(FairseqEncoder):
         self, dictionary, embed_dim=512, max_positions=1024,
         convolutions=((512, 3),) * 20, dropout=0.1, attention=False,
         attention_nheads=1, project_input=False, left_pad=True,
+        hierarchical_attention=False,
     ):
         super().__init__(dictionary)
         self.dropout = dropout
         self.num_attention_layers = None
         self.left_pad = left_pad
+        self.hierarchical_attention = hierarchical_attention
 
         num_embeddings = len(dictionary)
         self.padding_idx = dictionary.pad()
+        self.newline_idx = dictionary.index("<newline>")
         self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
         self.embed_positions = PositionalEmbedding(
             max_positions,
@@ -183,6 +196,8 @@ class FConvEncoder(FairseqEncoder):
 
         self.fc2 = Linear(in_channels, embed_dim)
 
+    # Assumption: When hierarchical attention is true, the number of paragraphs in each element of the batch should be equal. 
+    # This should be enforced through how the batches are made.
     def forward(self, src_tokens, src_lengths):
         # embed tokens and positions
         x = self.embed_tokens(src_tokens) + self.embed_positions(src_tokens)
@@ -220,20 +235,33 @@ class FConvEncoder(FairseqEncoder):
 
         # add output to input embedding for attention
         y = (x + input_embedding.transpose(0, 1)) * math.sqrt(0.5)
+            
+        sentence_value, all_chunk_sizes = reduce_sum_at(src_tokens, x, self.newline_idx) if self.hierarchical_attention else (None, None)
 
         return {
             'encoder_out': (x, y),
+            'sentence_attn': (sentence_value, all_chunk_sizes)
         }
 
     def reorder_encoder_out(self, encoder_out_dict, new_order):
         encoder_out_dict['encoder_out'] = tuple(
-            eo.index_select(0, new_order) for eo in encoder_out_dict['encoder_out']
+            eo.index_select(0, new_order)
+            for eo in encoder_out_dict['encoder_out']
+        )
+        encoder_out_dict['sentence_attn'] = tuple(
+            eo.index_select(0, new_order) if eo is not None else None 
+            for eo in encoder_out_dict['sentence_attn']
         )
 
         if 'pretrained' in encoder_out_dict:
             encoder_out_dict['pretrained']['encoder_out'] = tuple(
                 eo.index_select(0, new_order)
                 for eo in encoder_out_dict['pretrained']['encoder_out']
+            )
+
+            encoder_out_dict['pretrained']['sentence_attn'] = tuple(
+                eo.index_select(0, new_order) if eo is not None else None
+                for eo in encoder_out_dict['pretrained']['sentence_attn']
             )
 
         return encoder_out_dict
@@ -251,6 +279,7 @@ class FConvDecoder(FairseqDecoder):
         selfattention=False, attention_nheads=1, selfattention_nheads=1,
         project_input=False, gated_attention=False, downsample=False,
         pretrained=False, trained_decoder=None, left_pad=False,
+        hierarchical_attention=False, sentence_copy=False,
     ):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([2]))
@@ -268,6 +297,7 @@ class FConvDecoder(FairseqDecoder):
 
         attention = expand_bool_array(attention)
         selfattention = expand_bool_array(selfattention)
+        hierarchical_attention = expand_bool_array(hierarchical_attention)
 
         if not isinstance(attention, list) or len(attention) != len(convolutions):
             raise ValueError('Attention is expected to be a list of booleans of '
@@ -301,10 +331,14 @@ class FConvDecoder(FairseqDecoder):
                 )
             )
 
+            if hierarchical_attention[i] and not attention[i]:
+                raise ValueError("You can't have hierarchical attention at a layer without attention.")
+
             self.attention.append(
                 DownsampledMultiHeadAttention(
                     out_channels, embed_dim, attention_nheads,
-                    project_input=project_input, gated=False, downsample=False,
+                    project_input=project_input, gated=False, downsample=False, 
+                    hierarchical_attention=hierarchical_attention[i]
                 ) if attention[i] else None
             )
 
@@ -356,6 +390,7 @@ class FConvDecoder(FairseqDecoder):
         trained_encoder_out = encoder_out_dict['pretrained'] if self.pretrained else None
 
         encoder_a, encoder_b = self._split_encoder_out(encoder_out)
+        sentence_value, all_chunk_sizes = encoder_out_dict['encoder']['sentence_attn']
 
         # embed positions
         positions = self.embed_positions(prev_output_tokens)
@@ -385,7 +420,8 @@ class FConvDecoder(FairseqDecoder):
             # attention
             if attention is not None:
                 r = x
-                x, attn_scores = attention(attproj(x) + target_embedding, encoder_a, encoder_b)
+                x, attn_scores, _ = attention(attproj(x) + target_embedding, encoder_a, encoder_b, 
+                                              sentence_value=sentence_value, all_chunk_sizes=all_chunk_sizes)
                 x = x + r
                 if avg_attn_scores is None:
                     avg_attn_scores = attn_scores
@@ -450,11 +486,39 @@ class SelfAttention(nn.Module):
 
     def forward(self, x):
         residual = x
+
         query = self.in_proj_q(x)
         key = self.in_proj_k(x)
         value = self.in_proj_v(x)
-        x, _ = self.attention(query, key, value, mask_future_timesteps=True, use_scalar_bias=True)
+        x, _, _ = self.attention(query, key, value, mask_future_timesteps=True, use_scalar_bias=True)
+
         return self.ln(x + residual)
+
+# Precondition: Delimiter value should appear an equal number of times in each batch element.
+# ids - B x T, values B x T x C
+def reduce_sum_at(ids, values, delimiter_value):
+    batch_size, sequence_size = ids.size()
+    delimiter_locs = (ids == delimiter_value).nonzero()
+
+    if delimiter_locs.numel() == 0:
+        return values.mean(dim=1, keepdim=True), torch.ones((batch_size, 1), dtype=torch.long, device=values.device) * sequence_size
+
+    delimiter_locs = delimiter_locs[:,1].chunk(batch_size) # B x S
+    
+    sentence_vecs = []
+    all_chunk_sizes = []
+
+    for locs, values_row in zip(delimiter_locs, values):
+        intermediate_sizes = locs[1:] - locs[:-1]
+        start_size = locs[0] + 1
+        end_size = sequence_size - locs[-1] - 1
+        chunk_sizes = [start_size.item()] + intermediate_sizes.tolist() + [end_size.item()]
+
+        sentence_vecs.append(torch.stack(list(map(lambda sentence_values: sentence_values.mean(dim=0), 
+                                                  values_row.split(chunk_sizes, dim=0)))))
+        all_chunk_sizes.append(torch.LongTensor(chunk_sizes))
+
+    return torch.stack(sentence_vecs), torch.stack(all_chunk_sizes) # B x S x C, B x S
 
 
 def Embedding(num_embeddings, embedding_dim, padding_idx):
@@ -515,6 +579,8 @@ def base_architecture(args):
     args.downsample = getattr(args, 'downsample', 'False')
     args.pretrained_checkpoint = getattr(args, 'pretrained_checkpoint', '')
     args.pretrained = getattr(args, 'pretrained', 'False')
+    args.hierarchical_attention = getattr(args, 'hierarchical_attention', 'False')
+    args.sentence_copy = getattr(args, 'sentence_copy', False)
 
 @register_model_architecture('fconv_self_att', 'fconv_self_att_wp')
 def fconv_self_att_wp(args):
@@ -529,3 +595,12 @@ def fconv_self_att_wp(args):
     args.gated_attention = getattr(args, 'gated_attention', 'True')
     args.downsample = getattr(args, 'downsample', 'True')
     base_architecture(args)
+
+@register_model_architecture('fconv_self_att', 'fconv_outline')
+def fconv_outline(args):
+    args.hierarchical_attention = getattr(args, 'hierarchical_attention', '[False] * 6 + [True]')
+    args.sentence_copy = getattr(args, 'sentence_copy', False)
+    # If the task is language translation than this model should be used in story outline mode. If the task
+    # is not language translation this option will have no effect.
+    args.story_outline_mode = True
+    fconv_self_att_wp(args)

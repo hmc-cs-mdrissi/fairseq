@@ -10,7 +10,8 @@ import os
 from fairseq import options, tokenizer
 from fairseq.data import (
     data_utils, Dictionary, LanguagePairDataset, IndexedInMemoryDataset,
-    IndexedRawTextDataset,
+    IndexedRawTextDataset, StoryOutlineDataset, EpochBatchIterator, 
+    ParagraphEpochBatchIterator,
 )
 
 from . import FairseqTask, register_task
@@ -37,6 +38,9 @@ class TranslationTask(FairseqTask):
                             help='max number of tokens in the source sequence')
         parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
                             help='max number of tokens in the target sequence')
+        parser.add_argument('--story-outline-mode', action='store_true', 
+                            help='This will use the story outline dataset and the paragraph epoch batch iterator. '
+                                 'Mainly useful if you want each batch element to have the same number of paragraphs.')
 
     def __init__(self, args, src_dict, tgt_dict):
         super().__init__(args)
@@ -95,14 +99,41 @@ class TranslationTask(FairseqTask):
 
         src_dataset = indexed_dataset(prefix + src, self.src_dict)
         tgt_dataset = indexed_dataset(prefix + tgt, self.tgt_dict)
-        self.datasets[split] = LanguagePairDataset(
-            src_dataset, src_dataset.sizes, self.src_dict,
-            tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
-            left_pad_source=self.args.left_pad_source,
-            left_pad_target=self.args.left_pad_target,
-            max_source_positions=self.args.max_source_positions,
-            max_target_positions=self.args.max_target_positions,
-        )
+
+        if self.args.story_outline_mode:
+            self.datasets[split] = StoryOutlineDataset(
+                src_dataset, src_dataset.sizes, self.src_dict,
+                tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
+                left_pad_source=self.args.left_pad_source,
+                left_pad_target=self.args.left_pad_target,
+                max_source_positions=self.args.max_source_positions,
+                max_target_positions=self.args.max_target_positions,
+            )
+        else:
+            self.datasets[split] = LanguagePairDataset(
+                src_dataset, src_dataset.sizes, self.src_dict,
+                tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
+                left_pad_source=self.args.left_pad_source,
+                left_pad_target=self.args.left_pad_target,
+                max_source_positions=self.args.max_source_positions,
+                max_target_positions=self.args.max_target_positions,
+            )
+
+    def build_epoch_itr(self, max_positions):
+        if self.args.story_outline_mode:
+            return ParagraphEpochBatchIterator(dataset=self.dataset(self.args.train_subset), max_tokens=self.args.max_tokens,
+                                               max_sentences=self.args.max_sentences_valid, max_positions=max_positions,
+                                               ignore_invalid_inputs=True, required_batch_size_multiple=8,
+                                               seed=self.args.seed, num_shards=self.args.distributed_world_size,
+                                               shard_id=self.args.distributed_rank,
+                                               )
+        else:
+            return EpochBatchIterator(dataset=self.dataset(self.args.train_subset), max_tokens=self.args.max_tokens,
+                                      max_sentences=self.args.max_sentences_valid, max_positions=max_positions,
+                                      ignore_invalid_inputs=True, required_batch_size_multiple=8,
+                                      seed=self.args.seed, num_shards=self.args.distributed_world_size,
+                                      shard_id=self.args.distributed_rank,
+                                      )
 
     @property
     def source_dictionary(self):

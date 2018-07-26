@@ -45,6 +45,9 @@ class FairseqTask(object):
     def build_criterion(self, args):
         return criterions.build_criterion(args, self)
 
+    def build_epoch_itr(self, max_positions):
+        raise NotImplementedError
+
     def get_loss(self, model, criterion, sample):
         return criterion(model, sample)
 

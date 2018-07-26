@@ -243,6 +243,85 @@ class EpochBatchIterator(object):
             ).format(len(ignored), self.max_positions, ignored[:10]))
 
 
+class ParagraphEpochBatchIterator(EpochBatchIterator):
+    """Extends EpochBatchIterator to maintain the constraint that each batch only has elements with the same number of paragraphs.
+       Must be used on a StoryDataset.
+    """
+
+    def __init__(
+        self, dataset, max_tokens=None, max_sentences=None, max_positions=None,
+        ignore_invalid_inputs=False, required_batch_size_multiple=1, seed=1,
+        num_shards=1, shard_id=0,
+    ):
+        super().__init__(dataset, max_tokens=max_tokens, max_sentences=max_sentences,
+                         max_positions=max_positions, ignore_invalid_inputs=ignore_invalid_inputs,
+                         required_batch_size_multiple=required_batch_size_multiple, seed=seed,
+                         num_shards=num_shards, shard_id=shard_id)
+        from . import StoryDataset
+        assert isinstance(dataset, StoryDataset)
+
+    def _batch_generator(self):
+        batch = []
+
+        def is_batch_full(num_tokens):
+            if len(batch) == 0:
+                return False
+            if len(batch) == self.max_sentences:
+                return True
+            if num_tokens > self.max_tokens:
+                return True
+            return False
+
+        sample_len = 0
+        sample_lens = []
+        ignored = []
+        paragraph_count = -1
+
+        for idx in self.dataset.ordered_indices():
+            if not self.dataset.valid_size(idx, self.max_positions):
+                if self.ignore_invalid_inputs:
+                    ignored.append(idx)
+                    continue
+                raise Exception((
+                    'Size of sample #{} is invalid, max_positions={}, skip this '
+                    'example with --skip-invalid-size-inputs-valid-test'
+                ).format(idx, self.max_positions))
+
+            curr_paragraph_count = self.dataset.get_paragraph_count(idx)
+
+            if curr_paragraph_count != paragraph_count:
+                paragraph_count = curr_paragraph_count
+                yield batch
+                batch = []
+                sample_lens = []
+                sample_len = 0
+
+            sample_lens.append(self.dataset.num_tokens(idx))
+            sample_len = max(sample_len, sample_lens[-1])
+            num_tokens = (len(batch) + 1) * sample_len
+
+            if is_batch_full(num_tokens):
+                mod_len = max(
+                    self.bsz_mult * (len(batch) // self.bsz_mult),
+                    len(batch) % self.bsz_mult,
+                )
+                yield batch[:mod_len]
+                batch = batch[mod_len:]
+                sample_lens = sample_lens[mod_len:]
+                sample_len = max(sample_lens) if len(sample_lens) > 0 else 0
+
+            batch.append(idx)
+
+        if len(batch) > 0:
+            yield batch
+
+        if len(ignored) > 0:
+            print((
+                '| WARNING: {} samples have invalid sizes and will be skipped, '
+                'max_positions={}, first few sample ids={}'
+            ).format(len(ignored), self.max_positions, ignored[:10]))
+
+
 @contextlib.contextmanager
 def numpy_seed(seed):
     """Context manager which seeds the NumPy PRNG with the specified seed and
