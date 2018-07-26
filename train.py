@@ -55,7 +55,8 @@ def main(args):
 
     # Initialize dataloader
     max_positions = trainer.get_model().max_positions()
-    epoch_itr = task.build_epoch_itr(max_positions)
+    epoch_itr = task.build_epoch_itr(task.dataset(args.train_subset), max_positions=max_positions, 
+                                                  ignore_invalid_inputs=True, max_sentences=args.max_sentences_valid)
 
     # Load the latest checkpoint if one is available
     load_checkpoint(args, trainer, epoch_itr)
@@ -180,17 +181,9 @@ def validate(args, trainer, task, epoch_itr, subsets):
     valid_losses = []
     for subset in subsets:
         # Initialize data iterator
-        itr = data.EpochBatchIterator(
-            dataset=task.dataset(subset),
-            max_tokens=args.max_tokens,
-            max_sentences=args.max_sentences_valid,
-            max_positions=trainer.get_model().max_positions(),
-            ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-            required_batch_size_multiple=8,
-            seed=args.seed,
-            num_shards=args.distributed_world_size,
-            shard_id=args.distributed_rank,
-        ).next_epoch_itr(shuffle=False)
+        itr = task.build_epoch_itr(task.dataset(subset), max_positions=trainer.get_model().max_positions(), 
+                                   ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+                                   max_sentences=args.max_sentences_valid).next_epoch_itr(shuffle=False)
         progress = progress_bar.build_progress_bar(
             args, itr, epoch_itr.epoch,
             prefix='valid on \'{}\' subset'.format(subset),

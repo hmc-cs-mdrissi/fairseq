@@ -57,16 +57,9 @@ def main(args):
     align_dict = utils.load_align_dict(args.replace_unk)
 
     # Load dataset (possibly sharded)
-    itr = data.EpochBatchIterator(
-        dataset=task.dataset(args.gen_subset),
-        max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences,
-        max_positions=models[0].max_positions(),
-        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        required_batch_size_multiple=8,
-        num_shards=args.num_shards,
-        shard_id=args.shard_id,
-    ).next_epoch_itr(shuffle=False)
+    itr = task.build_epoch_itr(task.dataset(args.gen_subset), max_positions=models[0].max_positions(), 
+                               ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+                               max_sentences=args.max_sentences).next_epoch_itr(shuffle=False)
 
     # Initialize generator
     gen_timer = StopwatchMeter()

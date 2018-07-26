@@ -32,15 +32,18 @@ def buffered_read(buffer_size):
         yield buffer
 
 
-def make_batches(tokenizer_tool, lines, args, src_dict, max_positions):
+def make_batches(tokenizer_tool, task, lines, args, src_dict, max_positions):
     tokens = [
         tokenizer_tool.tokenize(src_str, src_dict, add_if_not_exist=False).long()
         for src_str in lines
     ]
     lengths = np.array([t.numel() for t in tokens])
-    itr = data.EpochBatchIterator(
-        dataset=data.LanguagePairDataset(tokens, lengths, src_dict),
-        max_tokens=args.max_tokens,
+    itr = task.build_epoch_itr(data.LanguagePairDataset(tokens, lengths, src_dict), 
+                               max_positions=models[0].max_positions(), ignore_invalid_inputs=False,
+                               max_sentences=args.max_sentences).next_epoch_itr(shuffle=False)
+
+    data.EpochBatchIterator(
+        dataset=,
         max_sentences=args.max_sentences,
         max_positions=max_positions,
     ).next_epoch_itr(shuffle=False)
@@ -160,7 +163,7 @@ def main(args):
     for inputs in buffered_read(args.buffer_size):
         indices = []
         results = []
-        for batch, batch_indices in make_batches(tokenizer_tool, inputs, args, src_dict, models[0].max_positions()):
+        for batch, batch_indices in make_batches(tokenizer_tool, task, inputs, args, src_dict, models[0].max_positions()):
             indices.extend(batch_indices)
             results += process_batch(batch)
 
