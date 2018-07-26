@@ -243,28 +243,29 @@ class FConvEncoder(FairseqEncoder):
             'sentence_attn': (sentence_value, all_chunk_sizes)
         }
 
-    def reorder_encoder_out(self, encoder_out_dict, new_order):
-        encoder_out_dict['encoder_out'] = tuple(
-            eo.index_select(0, new_order)
-            for eo in encoder_out_dict['encoder_out']
+
+    def reorder_encoder_out(self, encoder_out, new_order):
+        encoder_out['encoder_out'] = tuple(
+            eo.index_select(0, new_order) for eo in encoder_out['encoder_out']
         )
-        encoder_out_dict['sentence_attn'] = tuple(
+
+        encoder_out['sentence_attn'] = tuple(
             eo.index_select(0, new_order) if eo is not None else None 
-            for eo in encoder_out_dict['sentence_attn']
+            for eo in encoder_out['sentence_attn']
         )
 
-        if 'pretrained' in encoder_out_dict:
-            encoder_out_dict['pretrained']['encoder_out'] = tuple(
+        if 'pretrained' in encoder_out:
+            encoder_out['pretrained']['encoder_out'] = tuple(
                 eo.index_select(0, new_order)
-                for eo in encoder_out_dict['pretrained']['encoder_out']
+                for eo in encoder_out['pretrained']['encoder_out']
             )
 
-            encoder_out_dict['pretrained']['sentence_attn'] = tuple(
+            encoder_out['pretrained']['sentence_attn'] = tuple(
                 eo.index_select(0, new_order) if eo is not None else None
-                for eo in encoder_out_dict['pretrained']['sentence_attn']
+                for eo in encoder_out['pretrained']['sentence_attn']
             )
 
-        return encoder_out_dict
+        return encoder_out
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
@@ -287,6 +288,7 @@ class FConvDecoder(FairseqDecoder):
         self.pretrained_decoder = trained_decoder
         self.dropout = dropout
         self.left_pad = left_pad
+        self.need_attn = True
         in_channels = convolutions[0][0]
 
         def expand_bool_array(val):
@@ -423,10 +425,11 @@ class FConvDecoder(FairseqDecoder):
                 x, attn_scores, _ = attention(attproj(x) + target_embedding, encoder_a, encoder_b, 
                                               sentence_value=sentence_value, all_chunk_sizes=all_chunk_sizes)
                 x = x + r
-                if avg_attn_scores is None:
-                    avg_attn_scores = attn_scores
-                else:
-                    avg_attn_scores.add_(attn_scores)
+                if not self.training and self.need_attn:
+                    if avg_attn_scores is None:
+                        avg_attn_scores = attn_scores
+                    else:
+                        avg_attn_scores.add_(attn_scores)
 
             if selfattention is not None:
                 x = selfattention(x)
@@ -460,6 +463,9 @@ class FConvDecoder(FairseqDecoder):
     def max_positions(self):
         """Maximum output length supported by the decoder."""
         return self.embed_positions.max_positions()
+
+    def make_generation_fast_(self, need_attn=False, **kwargs):
+        self.need_attn = need_attn
 
     def _split_encoder_out(self, encoder_out):
         """Split and transpose encoder outputs."""

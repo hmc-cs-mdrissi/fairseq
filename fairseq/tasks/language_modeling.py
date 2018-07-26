@@ -5,7 +5,11 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
+import itertools
+import numpy as np
 import os
+
+from torch.utils.data import ConcatDataset
 
 from fairseq import tokenizer
 from fairseq.data import (
@@ -44,29 +48,51 @@ class LanguageModelingTask(FairseqTask):
         print('| dictionary: {} types'.format(len(dictionary)))
         return cls(args, dictionary)
 
-    def load_dataset(self, split):
+    def load_dataset(self, split, combine=False):
         """Load a dataset split."""
-        path = os.path.join(self.args.data, split)
-        if self.args.raw_text and IndexedRawTextDataset.exists(path):
-            tokenizer_tool = tokenizer.build_tokenizer(self.args)
-            ds = IndexedRawTextDataset(tokenizer_tool, path, self.dictionary)
-            tokens = ds.tokens_list
-        elif not self.args.raw_text and IndexedInMemoryDataset.exists(path):
-            ds = IndexedInMemoryDataset(path, fix_lua_indexing=True)
-            tokens = ds.buffer
+        loaded_datasets = []
+
+        for k in itertools.count():
+            split_k = split + (str(k) if k > 0 else '')
+            path = os.path.join(self.args.data, split_k)
+
+            if self.args.raw_text and IndexedRawTextDataset.exists(path):
+                ds = IndexedRawTextDataset(path, self.dictionary)
+                tokens = [t for l in ds.tokens_list for t in l]
+            elif not self.args.raw_text and IndexedInMemoryDataset.exists(path):
+                ds = IndexedInMemoryDataset(path, fix_lua_indexing=True)
+                tokens = ds.buffer
+            else:
+                if k > 0:
+                    break
+                else:
+                    raise FileNotFoundError('Dataset not found: {} ({})'.format(split, self.args.data))
+
+            loaded_datasets.append(
+                TokenBlockDataset(
+                    tokens, ds.sizes, self.args.tokens_per_sample, self.args.sample_break_mode,
+                    include_targets=True
+                ))
+
+            print('| {} {} {} examples'.format(self.args.data, split_k, len(loaded_datasets[-1])))
+
+            if not combine:
+                break
+
+        if len(loaded_datasets) == 1:
+            dataset = loaded_datasets[0]
+            sizes = dataset.sizes
         else:
-            raise FileNotFoundError('Dataset not found: {} ({})'.format(split, self.args.data))
+            dataset = ConcatDataset(loaded_datasets)
+            sizes = np.concatenate([ds.sizes for ds in loaded_datasets])
 
-        dataset = TokenBlockDataset(
-            tokens, ds.sizes, self.args.tokens_per_sample, self.args.sample_break_mode,
-            include_targets=True,  # return next tokens as targets
-        )
-        self.datasets[split] = MonolingualDataset(dataset, dataset.sizes, self.dictionary, shuffle=False)
+        self.datasets[split] = MonolingualDataset(dataset, sizes, self.dictionary, shuffle=False)
 
-    def build_epoch_itr(self, max_positions):
-        return EpochBatchIterator(dataset=self.dataset(self.args.train_subset), max_tokens=self.args.max_tokens,
-                                  max_sentences=self.args.max_sentences_valid, max_positions=max_positions,
-                                  ignore_invalid_inputs=True, required_batch_size_multiple=8,
+    def build_epoch_itr(self, dataset, max_positions, ignore_invalid_inputs, 
+                        max_sentences, max_tokens=self.args.max_tokens):
+        return EpochBatchIterator(dataset=dataset, max_tokens=max_tokens,
+                                  max_sentences=max_sentences, max_positions=max_positions,
+                                  ignore_invalid_inputs=ignore_invalid_inputs, required_batch_size_multiple=8,
                                   seed=self.args.seed, num_shards=self.args.distributed_world_size,
                                   shard_id=self.args.distributed_rank,
                                   )
