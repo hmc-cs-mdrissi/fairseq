@@ -46,11 +46,11 @@ def get_parser():
                              "['Hello,' , 'how's', 'your', 'day', 'today?'] when using the default, but would instead be tokenized as "
                              "['Hello', ',', 'how', ''s', 'your', 'day', 'today', '?'] when using nltk. The sacremoses tokenizer is from this package, "
                              "https://github.com/alvations/sacremoses.")
-    parser.add_argument('--max_source_length', metavar='N', type=int,
+    parser.add_argument('--max-source-length', metavar='N', type=int,
                         help="The maximum length of the source. If a sequence is longer it will be truncated to this length. " 
                              "If -1, then no truncation occurs. For joined_dictionary's the maximum of the source/target max length will "
                              " be used to build the dictionary. Default is no truncation.")
-    parser.add_argument('--max_target_length', metavar='N', type=int,
+    parser.add_argument('--max-target-length', metavar='N', type=int,
                         help="The maximum length of the target. If a sequence is longer it will be truncated to this length. " 
                              "If -1, then no truncation occurs. For joined_dictionary's the maximum of the source/target max length will "
                              "be used to build the dictionary. Default is no truncation.")

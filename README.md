@@ -213,7 +213,8 @@ python train.py --fp16 (...)
 Distributed training in fairseq is implemented on top of [torch.distributed](http://pytorch.org/docs/master/distributed.html).
 Training begins by launching one worker process per GPU.
 These workers discover each other via a unique host and port (required) that can be used to establish an initial connection.
-Additionally, each worker has a rank, that is a unique number from 0 to n-1 where n is the total number of GPUs.
+Additionally, each worker has a rank, that is a unique number from 0 to n-1 where n is the total number of GPUs by default. You can
+also use the option `--distributed-world-size` to change which GPUs are used.
 
 If you run on a cluster managed by [SLURM](https://slurm.schedmd.com/) you can train a large English-French model on the WMT 2014 dataset on 16 nodes with 8 GPUs each (in total 128 GPUs) using this command:
 

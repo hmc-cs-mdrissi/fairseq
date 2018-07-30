@@ -172,9 +172,9 @@ def add_dataset_args(parser, train=False, gen=False):
 
 def add_distributed_training_args(parser):
     group = parser.add_argument_group('Distributed training')
-    group.add_argument('--distributed-world-size', type=int, metavar='N',
-                       default=torch.cuda.device_count(),
-                       help='total number of GPUs across all nodes (default: all visible GPUs)')
+    group.add_argument('--distributed-world-ranks', type=eval, metavar='EXPR',
+                       default=range(torch.cuda.device_count()),
+                       help='Which gpus to use. Should be a list of numbers (e.g.: [1,2,3]). (default: all visible GPUs)')
     group.add_argument('--distributed-rank', default=0, type=int,
                        help='rank of the current worker')
     group.add_argument('--distributed-backend', default='nccl', type=str,

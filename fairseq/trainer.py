@@ -130,7 +130,7 @@ class Trainer(object):
             logging_outputs = self._buffered_stats['logging_outputs']
             ooms_fwd = self._buffered_stats['ooms_fwd']
             ooms_bwd = self._buffered_stats['ooms_bwd']
-            if self.args.distributed_world_size > 1:
+            if len(self.args.distributed_world_ranks) > 1:
                 sample_sizes, logging_outputs, ooms_fwd, ooms_bwd = map(
                     lambda l: list(chain.from_iterable(l)),
                     zip(*distributed_utils.all_gather_list(
@@ -140,7 +140,7 @@ class Trainer(object):
             ooms_fwd = sum(ooms_fwd)
             ooms_bwd = sum(ooms_bwd)
 
-            if ooms_fwd == self.args.distributed_world_size:
+            if ooms_fwd == len(self.args.distributed_world_ranks):
                 print('| WARNING: OOM in all workers, skipping batch')
                 self.zero_grad()
                 return None
@@ -230,7 +230,7 @@ class Trainer(object):
     def _all_reduce_and_rescale(self, grad_denom):
         # flatten grads into a single buffer and all-reduce
         flat_grads = self._flat_grads = self._get_flat_grads(self._flat_grads)
-        if self.args.distributed_world_size > 1:
+        if len(self.args.distributed_world_ranks) > 1:
             torch.distributed.all_reduce(flat_grads)
 
         # rescale and clip gradients
@@ -290,7 +290,7 @@ class Trainer(object):
         assert not oom_fwd, 'Ran out of memory during validation'
 
         # gather logging outputs from all GPUs
-        if self.args.distributed_world_size > 1:
+        if len(self.args.distributed_world_ranks) > 1:
             sample_sizes, logging_outputs = zip(*distributed_utils.all_gather_list(
                 (sample_size, logging_output)
             ))

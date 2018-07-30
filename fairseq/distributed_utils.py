@@ -17,7 +17,7 @@ def is_master(args):
 
 
 def distributed_init(args):
-    if args.distributed_world_size == 1:
+    if len(args.distributed_world_ranks) == 1:
         raise ValueError('Cannot initialize distributed with distributed_world_size=1')
 
     print('| distributed init (rank {}): {}'.format(
@@ -25,11 +25,11 @@ def distributed_init(args):
     if args.distributed_init_method.startswith('tcp://'):
         torch.distributed.init_process_group(
             backend=args.distributed_backend, init_method=args.distributed_init_method,
-            world_size=args.distributed_world_size, rank=args.distributed_rank)
+            world_size=len(args.distributed_world_ranks), rank=args.distributed_rank)
     else:
         torch.distributed.init_process_group(
             backend=args.distributed_backend, init_method=args.distributed_init_method,
-            world_size=args.distributed_world_size)
+            world_size=len(args.distributed_world_ranks))
 
     args.distributed_rank = torch.distributed.get_rank()
     if not is_master(args):

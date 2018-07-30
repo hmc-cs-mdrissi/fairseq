@@ -18,7 +18,6 @@ from train import main as single_process_main
 
 def main(args):
     # Set distributed training parameters for a single node.
-    args.distributed_world_size = torch.cuda.device_count()
     args.distributed_init_method = 'tcp://localhost:{port}'.format(
         port=random.randint(10000, 20000))
 
@@ -30,12 +29,12 @@ def main(args):
 
     # Train with multiprocessing.
     procs = []
-    for i in range(args.distributed_world_size):
-        args.distributed_rank = i
+    for index, i in enumerate(args.distributed_world_ranks):
+        args.distributed_rank = index
         args.device_id = i
         procs.append(mp.Process(target=run, args=(args, error_queue, ), daemon=True))
-        procs[i].start()
-        error_handler.add_child(procs[i].pid)
+        procs[index].start()
+        error_handler.add_child(procs[index].pid)
     for p in procs:
         p.join()
 

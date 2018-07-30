@@ -47,7 +47,7 @@ def main(args):
         if torch.cuda.get_device_capability(0)[0] >= 7:
             print('| NOTICE: your device may support faster training with --fp16')
         trainer = Trainer(args, task, model, criterion)
-    print('| training on {} GPUs'.format(args.distributed_world_size))
+    print('| training on {} GPUs'.format(len(args.distributed_world_ranks)))
     print('| max tokens per GPU = {} and max sentences per GPU = {}'.format(
         args.max_tokens,
         args.max_sentences,
@@ -322,7 +322,7 @@ if __name__ == '__main__':
         from distributed_train import main as distributed_main
 
         distributed_main(args)
-    elif args.distributed_world_size > 1:
+    elif len(args.distributed_world_ranks) > 1:
         from multiprocessing_train import main as multiprocessing_main
 
         multiprocessing_main(args)
