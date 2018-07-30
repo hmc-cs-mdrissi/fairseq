@@ -16,7 +16,7 @@ from fairseq.modules import (
     DownsampledMultiHeadAttention, GradMultiply, LearnedPositionalEmbedding,
     LinearizedConvolution,
 )
-from fairseq import utils, pdb
+from fairseq import utils
 
 from . import (
     FairseqEncoder, CompositeEncoder, FairseqDecoder, FairseqModel,
@@ -73,8 +73,8 @@ class FConvModelSelfAtt(FairseqModel):
                             help='Use downsampling in self-attention [True, ...]')
         parser.add_argument('--pretrained-checkpoint', metavar='DIR',
                             help='path to load checkpoint from pretrained model')
-        parser.add_argument('--pretrained', type=str, metavar='EXPR',
-                            help='use pretrained model when training [True, ...]')
+        parser.add_argument('--pretrained', type=str, metavar='BOOL',
+                            help='use pretrained model when training')
         parser.add_argument('--hierarchical-attention', type=str, metavar='EXPR',
                             help='decoder hierarchical attention [True, ...]')
         parser.add_argument('--sentence-copy', type=bool, metavar='BOOL',

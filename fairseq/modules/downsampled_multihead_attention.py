@@ -20,7 +20,7 @@ class SingleHeadAttention(nn.Module):
     def __init__(
         self, out_channels, embed_dim, head_dim, head_index, dropout=0.,
         bias=True, project_input=True, gated=False, downsample=False,
-        num_heads=1, hierarchical_attention=False,
+        num_heads=1, hierarchical_attention=False, only_compute_sentence_attention=False
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -33,6 +33,7 @@ class SingleHeadAttention(nn.Module):
         self.num_heads = num_heads
         self.projection = None
         self.hierarchical_attention = hierarchical_attention
+        self.only_compute_sentence_attention = only_compute_sentence_attention
 
         k_layers = []
         v_layers = []
@@ -171,7 +172,7 @@ class SingleHeadAttention(nn.Module):
                 )
                 attn_weights = attn_weights.view(size, tgt_len, src_len)
         
-        if self.hierarchical_attention:
+        if self.hierarchical_attention and not self.only_compute_sentence_attention:
             new_attn_weights = []
             # attn_weight: T' x T, sentence_attn_weight: T' x S, chunk_sizes: S
             for attn_weight, sentence_attn_weight, chunk_sizes in zip(attn_weights, sentence_attn_weights, all_chunk_sizes):
@@ -202,6 +203,7 @@ class DownsampledMultiHeadAttention(nn.ModuleList):
     def __init__(
         self, out_channels, embed_dim, num_heads, dropout=0., bias=True,
         project_input=True, gated=False, downsample=False, hierarchical_attention=False,
+        only_compute_sentence_attention=False,
     ):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -220,7 +222,8 @@ class DownsampledMultiHeadAttention(nn.ModuleList):
                     SingleHeadAttention(
                         out_channels, self.embed_dim, self.head_dim, index,
                         self.dropout, bias, self.project_input, self.gated,
-                        self.downsample, self.num_heads, hierarchical_attention=hierarchical_attention
+                        self.downsample, self.num_heads, hierarchical_attention=hierarchical_attention,
+                        only_compute_sentence_attention=only_compute_sentence_attention
                     )
                 )
             super().__init__(modules=attention_heads)
@@ -232,7 +235,8 @@ class DownsampledMultiHeadAttention(nn.ModuleList):
             self.attention_module = SingleHeadAttention(
                 out_channels, self.embed_dim, self.head_dim, 1, self.dropout,
                 bias, self.project_input, self.gated, self.downsample, self.num_heads, 
-                hierarchical_attention=hierarchical_attention
+                hierarchical_attention=hierarchical_attention, 
+                only_compute_sentence_attention=only_compute_sentence_attention
             )
 
     def forward(

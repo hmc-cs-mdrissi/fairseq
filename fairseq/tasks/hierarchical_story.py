@@ -1,137 +1,189 @@
-# # Copyright (c) 2017-present, Facebook, Inc.
-# # All rights reserved.
-# #
-# # This source code is licensed under the license found in the LICENSE file in
-# # the root directory of this source tree. An additional grant of patent rights
-# # can be found in the PATENTS file in the same directory.
+# Copyright (c) 2017-present, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the LICENSE file in
+# the root directory of this source tree. An additional grant of patent rights
+# can be found in the PATENTS file in the same directory.
 
-# import os
+import os
 
-# from fairseq import options, tokenizer
-# from fairseq.data import (
-#     data_utils, Dictionary, LanguagePairDataset, IndexedInMemoryDataset,
-#     IndexedRawTextDataset,
-# )
+from fairseq import options, tokenizer
+from fairseq.data import (
+    data_utils, Dictionary, IndexedInMemoryDataset,
+    IndexedRawTextDataset, HierarchicalStoryDataset
+)
 
-# from . import FairseqTask, register_task
+from . import FairseqTask, register_task
 
 
-# @register_task('hierarchical_story')
-# class HierarchicalStoryTask(FairseqTask):
-#     @staticmethod
-#     def add_args(parser):
-#         """Add task-specific arguments to the parser."""
-#         parser.add_argument('data', metavar='DIR', help='path to data directory')
-#         parser.add_argument('-s', '--source-lang', default=None, metavar='SRC',
-#                             help='source language')
-#         parser.add_argument('-t', '--target-lang', default=None, metavar='TARGET',
-#                             help='target language')
-#         parser.add_argument('--raw-text', action='store_true',
-#                             help='load raw text dataset')
-#         parser.add_argument('--left-pad-source', default='True', type=str, metavar='BOOL',
-#                             help='pad the source on the left (default: True)')
-#         parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
-#                             help='pad the target on the left (default: False)')
-#         parser.add_argument('--max-source-positions', default=1024, type=int, metavar='N',
-#                             help='max number of tokens in the source sequence')
-#         parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
-#                             help='max number of tokens in the target sequence')
-#         parser.add_argument('--use-story-outline-dataset', action='store_true', 
-#                             help='Use the story outline dataset. Mainly useful if you each batch element to have the same number of paragraphs.')
+@register_task('hierarchical_story')
+class HierarchicalStoryTask(FairseqTask):
+    @staticmethod
+    def add_args(parser):
+        """Add task-specific arguments to the parser."""
+        parser.add_argument('data', metavar='DIR', help='path to data directory')
+        parser.add_argument('-s', '--source-lang', default=None, metavar='SRC',
+                            help='source language')
+        parser.add_argument('-o', '--outline_lang', default=None, metavar='OUTLINE',
+                            help='outline language')
+        parser.add_argument('-t', '--target-lang', default=None, metavar='TARGET',
+                            help='target language')
+        parser.add_argument('--raw-text', action='store_true',
+                            help='load raw text dataset')
+        parser.add_argument('--left-pad-source', default='True', type=str, metavar='BOOL',
+                            help='pad the source on the left (default: True)')
+        parser.add_argument('--left-pad-outline', default='False', type=str, metavar='BOOL',
+                            help='pad the outline on the left (default: False)')
+        parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
+                            help='pad the target on the left (default: False)')
+        parser.add_argument('--max-source-positions', default=1024, type=int, metavar='N',
+                            help='max number of tokens in the source sequence')
+        parser.add_argument('--max-outline-positions', default=1024, type=int, metavar='N',
+                            help='max number of tokens in the outline sequence')
+        parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
+                            help='max number of tokens in the target sequence')
 
-#     def __init__(self, args, src_dict, tgt_dict):
-#         super().__init__(args)
-#         self.src_dict = src_dict
-#         self.tgt_dict = tgt_dict
+    def __init__(self, args, src_dict, outline_dict, tgt_dict):
+        super().__init__(args)
+        self.src_dict = src_dict
+        self.outline_dict
+        self.tgt_dict = tgt_dict
 
-#     @classmethod
-#     def setup_task(cls, args, **kwargs):
-#         args.left_pad_source = options.eval_bool(args.left_pad_source)
-#         args.left_pad_target = options.eval_bool(args.left_pad_target)
+    @classmethod
+    def setup_task(cls, args, **kwargs):
+        args.left_pad_source = options.eval_bool(args.left_pad_source)
+        self.left_pad_outline = options.eval_bool(args.left_pad_outline)
+        args.left_pad_target = options.eval_bool(args.left_pad_target)
 
-#         # find language pair automatically
-#         if args.source_lang is None or args.target_lang is None:
-#             args.source_lang, args.target_lang = data_utils.infer_language_pair(args.data)
-#         if args.source_lang is None or args.target_lang is None:
-#             raise Exception('Could not infer language pair, please provide it explicitly')
+        # find language pair automatically. Maybe TODO: Add a function to infer language triple.
+        if args.source_lang is None or args.outline_lang is None or args.target_lang is None:
+            raise Exception('Can not infer language triple, please provide it explicitly')
 
-#         # load dictionaries
-#         src_dict = Dictionary.load(os.path.join(args.data, 'dict.{}.txt'.format(args.source_lang)))
-#         tgt_dict = Dictionary.load(os.path.join(args.data, 'dict.{}.txt'.format(args.target_lang)))
-#         assert src_dict.pad() == tgt_dict.pad()
-#         assert src_dict.eos() == tgt_dict.eos()
-#         assert src_dict.unk() == tgt_dict.unk()
-#         print('| [{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
-#         print('| [{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
+        # load dictionaries
+        src_dict = Dictionary.load(os.path.join(args.data, f'dict.{args.source_lang}.txt'))
+        outline_dict = Dictionary.load(os.path.join(args.data, f'dict.{args.outline_lang}.txt'))
+        tgt_dict = Dictionary.load(os.path.join(args.data, f'dict.{args.target_lang}.txt'))
+        assert src_dict.pad() == tgt_dict.pad() and src_dict.pad() == outline_dict.pad()
+        assert src_dict.eos() == tgt_dict.eos() and src_dict.eos() == outline_dict.eos()
+        assert src_dict.unk() == tgt_dict.unk() and src_dict.unk() == outline_dict.unk()
+        print('| [{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
+        print('| [{}] dictionary: {} types'.format(args.outline_lang, len(outline_dict)))
+        print('| [{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
 
-#         return cls(args, src_dict, tgt_dict)
+        return cls(args, src_dict, outline_dict, tgt_dict)
 
-#     def load_dataset(self, split):
-#         """Load a dataset split."""
+    def load_dataset(self, split, combine=False):
+        """Load a dataset split."""
 
-#         def split_exists(src, tgt, lang):
-#             filename = os.path.join(self.args.data, '{}.{}-{}.{}'.format(split, src, tgt, lang))
-#             if self.args.raw_text and IndexedRawTextDataset.exists(filename):
-#                 return True
-#             elif not self.args.raw_text and IndexedInMemoryDataset.exists(filename):
-#                 return True
-#             return False
+        def split_exists(split, src, tgt, lang):
+            filename = os.path.join(self.args.data, '{}.{}-{}.{}'.format(split, src, tgt, lang))
+            if self.args.raw_text and IndexedRawTextDataset.exists(filename):
+                return True
+            elif not self.args.raw_text and IndexedInMemoryDataset.exists(filename):
+                return True
+            return False
 
-#         # infer langcode
-#         src, tgt = self.args.source_lang, self.args.target_lang
-#         if split_exists(src, tgt, src):
-#             prefix = os.path.join(self.args.data, '{}.{}-{}.'.format(split, src, tgt))
-#         elif split_exists(tgt, src, src):
-#             prefix = os.path.join(self.args.data, '{}.{}-{}.'.format(split, tgt, src))
-#         else:
-#             raise FileNotFoundError('Dataset not found: {} ({})'.format(split, self.args.data))
+        def indexed_dataset(path, dictionary):
+            if self.args.raw_text:
+                tokenizer_tool = tokenizer.build_tokenizer(self.args)
+                return IndexedRawTextDataset(tokenizer_tool, path, dictionary)
+            elif IndexedInMemoryDataset.exists(path):
+                return IndexedInMemoryDataset(path, fix_lua_indexing=True)
+            return None
 
-#         def indexed_dataset(path, dictionary):
-#             if self.args.raw_text:
-#                 tokenizer_tool = tokenizer.build_tokenizer(self.args)
-#                 return IndexedRawTextDataset(tokenizer_tool, path, dictionary)
-#             elif IndexedInMemoryDataset.exists(path):
-#                 return IndexedInMemoryDataset(path, fix_lua_indexing=True)
-#             return None
+        src_datasets = []
+        outline_datasets = []
+        tgt_datasets = []
 
-#         src_dataset = indexed_dataset(prefix + src, self.src_dict)
-#         tgt_dataset = indexed_dataset(prefix + tgt, self.tgt_dict)
+        for k in itertools.count():
+            split_k = split + (str(k) if k > 0 else '')
 
-#         if self.args.use_story_outline_dataset:
-#             self.datasets[split] = StoryOutlineDataset(
-#                 src_dataset, src_dataset.sizes, self.src_dict,
-#                 tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
-#                 left_pad_source=self.args.left_pad_source,
-#                 left_pad_target=self.args.left_pad_target,
-#                 max_source_positions=self.args.max_source_positions,
-#                 max_target_positions=self.args.max_target_positions,
-#             )
-#         else:
-#             self.datasets[split] = LanguagePairDataset(
-#                 src_dataset, src_dataset.sizes, self.src_dict,
-#                 tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
-#                 left_pad_source=self.args.left_pad_source,
-#                 left_pad_target=self.args.left_pad_target,
-#                 max_source_positions=self.args.max_source_positions,
-#                 max_target_positions=self.args.max_target_positions,
-#             )
+            # infer langcode
+            src, tgt = self.args.source_lang, self.args.target_lang
+            if split_exists(split_k, src, tgt, src):
+                prefix = os.path.join(self.args.data, '{}.{}-{}.'.format(split_k, src, tgt))
+            elif split_exists(split_k, tgt, src, src):
+                prefix = os.path.join(self.args.data, '{}.{}-{}.'.format(split_k, tgt, src))
+            else:
+                if k > 0:
+                    break
+                else:
+                    raise FileNotFoundError('Dataset not found: {} ({})'.format(split, self.args.data))
 
-#     def build_epoch_itr(self, max_positions):
-#         return data.EpochBatchIterator(dataset=self.dataset(args.train_subset),
-#                                        max_tokens=args.max_tokens,
-#                                        max_sentences=args.max_sentences_valid,
-#                                        max_positions=max_positions,
-#                                        ignore_invalid_inputs=True,
-#                                        required_batch_size_multiple=8,
-#                                        seed=args.seed,
-#                                        num_shards=args.distributed_world_size,
-#                                        shard_id=args.distributed_rank,
-#                                        )
+            src_datasets.append(indexed_dataset(prefix + src, self.src_dict))
+            tgt_datasets.append(indexed_dataset(prefix + tgt, self.tgt_dict))
 
-#     @property
-#     def source_dictionary(self):
-#         return self.src_dict
+            print('| {} {} {} examples'.format(self.args.data, split_k, len(src_datasets[-1])))
 
-#     @property
-#     def target_dictionary(self):
-#         return self.tgt_dict
+            if not combine:
+                break
+
+        assert len(src_datasets) == len(tgt_datasets)
+
+        for k in itertools.count():
+            split_k = split + (str(k) if k > 0 else '')
+
+            # infer langcode
+            outline, tgt = self.args.outline_lang, self.args.target_lang
+            if split_exists(split_k, outline, tgt, outline):
+                prefix = os.path.join(self.args.data, '{}.{}-{}.'.format(split_k, outline, tgt))
+            elif split_exists(split_k, tgt, outline, outline):
+                prefix = os.path.join(self.args.data, '{}.{}-{}.'.format(split_k, tgt, outline))
+            else:
+                if k > 0:
+                    break
+                else:
+                    raise FileNotFoundError('Dataset not found: {} ({})'.format(split, self.args.data))
+
+            outline_datasets.append(indexed_dataset(prefix + outline, self.outline_dict))
+
+            if not combine:
+                break
+
+        assert len(src_datasets) == len(outline_datasets)
+
+        if len(src_datasets) == 1:
+            src_dataset, outline_dataset, tgt_dataset = src_datasets[0], outline_datasets[0], tgt_datasets[0]
+            src_sizes = src_dataset.sizes
+            outline_sizes = outline_dataset.sizes
+            tgt_sizes = tgt_dataset.sizes
+        else:
+            src_dataset = ConcatDataset(src_datasets)
+            outline_dataset = ConcatDataset(outline_datasets)
+            tgt_dataset = ConcatDataset(tgt_datasets)
+            src_sizes = np.concatenate([ds.sizes for ds in src_datasets])
+            outline_sizes = np.concatenate([ds.sizes for ds in outline_datasets])
+            tgt_sizes = np.concatenate([ds.sizes for ds in tgt_datasets])
+
+        self.datasets[split] = HierarchicalStoryDataset(
+                src_dataset, src_sizes, self.src_dict,
+                outline_dataset, outline_sizes, self.outline_dict
+                tgt_dataset, tgt_sizes, self.tgt_dict,
+                left_pad_source=self.args.left_pad_source,
+                left_pad_outline=self.args.left_pad_outline,
+                left_pad_target=self.args.left_pad_target,
+                max_source_positions=self.args.max_source_positions,
+                max_outline_positions=self.args.max_outline_positions,
+                max_target_positions=self.args.max_target_positions,
+            )
+
+    def build_epoch_itr(self, dataset, max_positions, ignore_invalid_inputs, 
+                        max_sentences, max_tokens=self.args.max_tokens):
+        return ParagraphEpochBatchIterator(dataset=dataset, max_tokens=max_tokens,
+                                           max_sentences=max_sentences, max_positions=max_positions,
+                                           ignore_invalid_inputs=ignore_invalid_inputs, required_batch_size_multiple=8,
+                                           seed=self.args.seed, num_shards=len(self.args.distributed_world_ranks),
+                                           shard_id=self.args.distributed_rank,
+                                           )
+
+    @property
+    def source_dictionary(self):
+        return self.src_dict
+
+    @property
+    def outline_dict(self):
+        return self.outline_dict
+
+    @property
+    def target_dictionary(self):
+        return self.tgt_dict

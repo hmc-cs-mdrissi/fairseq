@@ -132,8 +132,8 @@ class TranslationTask(FairseqTask):
 
         if self.args.story_outline_mode:
             self.datasets[split] = StoryOutlineDataset(
-                src_dataset, src_dataset.sizes, self.src_dict,
-                tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
+                src_dataset, src_sizes, self.src_dict,
+                tgt_dataset, tgt_sizes, self.tgt_dict,
                 left_pad_source=self.args.left_pad_source,
                 left_pad_target=self.args.left_pad_target,
                 max_source_positions=self.args.max_source_positions,
@@ -141,8 +141,8 @@ class TranslationTask(FairseqTask):
             )
         else:
             self.datasets[split] = LanguagePairDataset(
-                src_dataset, src_dataset.sizes, self.src_dict,
-                tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
+                src_dataset, src_sizes, self.src_dict,
+                tgt_dataset, tgt_sizes, self.tgt_dict,
                 left_pad_source=self.args.left_pad_source,
                 left_pad_target=self.args.left_pad_target,
                 max_source_positions=self.args.max_source_positions,
