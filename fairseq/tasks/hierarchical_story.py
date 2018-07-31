@@ -157,7 +157,7 @@ class HierarchicalStoryTask(FairseqTask):
 
         self.datasets[split] = HierarchicalStoryDataset(
                 src_dataset, src_sizes, self.src_dict,
-                outline_dataset, outline_sizes, self.outline_dict
+                outline_dataset, outline_sizes, self.outline_dict,
                 tgt_dataset, tgt_sizes, self.tgt_dict,
                 left_pad_source=self.args.left_pad_source,
                 left_pad_outline=self.args.left_pad_outline,
@@ -168,8 +168,8 @@ class HierarchicalStoryTask(FairseqTask):
             )
 
     def build_epoch_itr(self, dataset, max_positions, ignore_invalid_inputs, 
-                        max_sentences, max_tokens=self.args.max_tokens):
-        return ParagraphEpochBatchIterator(dataset=dataset, max_tokens=max_tokens,
+                        max_sentences, max_tokens=None):
+        return ParagraphEpochBatchIterator(dataset=dataset, max_tokens=max_tokens or self.args.max_tokens,
                                            max_sentences=max_sentences, max_positions=max_positions,
                                            ignore_invalid_inputs=ignore_invalid_inputs, required_batch_size_multiple=8,
                                            seed=self.args.seed, num_shards=len(self.args.distributed_world_ranks),

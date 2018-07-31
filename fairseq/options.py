@@ -33,10 +33,7 @@ def get_generation_parser(interactive=False, default_task='translation'):
     if interactive:
         add_interactive_args(parser)
     return parser
-
-# TODO: next
-def get_hierarchical_generation_parser(default_task='hierarchical_story'):
-  pass
+    
 
 def get_eval_lm_parser(default_task='language_modeling'):
     parser = get_parser('Evaluate Language Model', default_task)

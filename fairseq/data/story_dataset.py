@@ -128,7 +128,7 @@ def hierarchical_story_collate(samples, pad_idx, eos_idx, left_pad_source=True,
             'prev_outline_output_tokens': prev_outline_output_tokens,
             'prev_target_output_tokens': prev_target_output_tokens,
         },
-        'target':{
+        'target': {
             'outline': outline,
             'target': target,
         }, 
@@ -195,8 +195,8 @@ class HierarchicalStoryDataset(StoryDataset):
             {
                 'id': i,
                 'source': self.src_dict.dummy_sentence(src_len),
-                'outline': self.outline_dict.dummy_sentence(outline_len)
-                'target': self.tgt_dict.dummy_sentence(tgt_len)
+                'outline': self.outline_dict.dummy_sentence(outline_len),
+                'target': self.tgt_dict.dummy_sentence(tgt_len),
             }
             for i in range(bsz)
         ])
@@ -230,5 +230,7 @@ class HierarchicalStoryDataset(StoryDataset):
             return self.max_source_positions, self.max_outline_positions, self.max_target_positions
         assert len(max_positions) == 3
         max_src_pos, max_outline_positions, max_tgt_pos = max_positions
-        return min(self.max_source_positions, max_src_pos), min(self.max_outline_positions, max_outline_positions), 
-               min(self.max_target_positions, max_tgt_pos)
+        return (min(self.max_source_positions, max_src_pos), 
+                min(self.max_outline_positions, max_outline_positions),
+                min(self.max_target_positions, max_tgt_pos)
+                )

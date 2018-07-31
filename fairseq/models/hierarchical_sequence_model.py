@@ -48,9 +48,10 @@ class HierarchicalSequenceModel(BaseFairseqModel):
 
     def max_positions(self):
         """Maximum length supported by the model."""
-        return self.first_model.encoder.max_positions(), 
-               min(self.first_model.decoder.max_positions(), self.second_model.encoder.max_positions()),
-               self.second_model.decoder.max_positions()
+        return (self.first_model.encoder.max_positions(), 
+                min(self.first_model.decoder.max_positions(), self.second_model.encoder.max_positions()),
+                self.second_model.decoder.max_positions()
+                )
 
     def max_decoder_positions(self):
         """Maximum length supported by the decoder."""

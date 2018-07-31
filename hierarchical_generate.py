@@ -155,6 +155,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = options.get_hierarchical_generation_parser()
-    args = options.parse_args_and_arch(parser)
+    parser = get_parser()
+    args = parser.parse_args()
     main(args)
