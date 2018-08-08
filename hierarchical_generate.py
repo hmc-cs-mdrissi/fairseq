@@ -8,16 +8,37 @@
 
 import torch
 
-from fairseq import bleu, data, options, progress_bar, tasks, tokenizer, utils
+from fairseq import data, options, progress_bar, tasks, tokenizer, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.sequence_generator import SequenceGenerator
-from fairseq.sequence_scorer import SequenceScorer
 
+def parser():
+    parser = argparse.ArgumentParser(
+        description='Hierarchical Story Generation without any evaluation. Perplexity is wonky to compute properly while bleu is not desirable.')
+    parser.add_argument('--first_model', metavar='FILE', help='Path to the model that converts from prompt to outline.')
+    parser.add_argument('--second_model', metavar='FILE', help='Path to the model that converts from outline to target.')
+    parser.add_argument('--max-tokens', metavar='N', type=int, help='maximum number of tokens in a batch')
+    parser.add('--max-sentences', '--batch-size', metavar='N', type=int, help='maximum number of elements in a batch')
+    parser.add_argument('--gen-subset', metavar='SPLIT', help='data subset to generate')
+    parser.add_argument('--num-shards', metavar='N', help='shard generation over N shards')
+    parser.add_argument('--sampling', action='store_true',
+                       help='sample hypotheses instead of using beam search')
+    parser.add_argument('--sampling-topk', default=-1, type=int, metavar='PS',
+                       help='sample from top K likely next words instead of all words')
+    parser.add_argument('--sampling-temperature', default=1, type=float, metavar='N',
+                       help='temperature for random sampling')
+    parser.add_argument('--model-overrides', default="{}", type=str, metavar='DICT',
+                       help='a dictionary used to override model args at generation that were used during model training')
+    parser.add_argument('--save-generated-file', default=False,
+                       help='filename to save generated outputs (by default outputs are not saved)')
+    parser.add_argument('--max-len-b', default=200, type=int, metavar='N',
+                       help=('generate sequences of maximum length ax + b, '
+                             'where x is the source length'))
+
+    return parser
 
 def main(args):
     assert args.path is not None, '--path required for generation!'
-    assert not args.sampling or args.nbest == args.beam, \
-        '--sampling requires --nbest to be equal to --beam'
     assert args.replace_unk is None or args.raw_text, \
         '--replace-unk requires a raw text dataset (--raw-text)'
 
@@ -150,7 +171,7 @@ def main(args):
 
     print('| Translated {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
-    if has_target:
+    if has_target:0
         print('| Generate {} with beam={}: {}'.format(args.gen_subset, args.beam, scorer.result_string()))
 
 

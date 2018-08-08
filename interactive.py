@@ -38,16 +38,20 @@ def make_batches(tokenizer_tool, task, lines, args, src_dict, max_positions):
         for src_str in lines
     ]
     lengths = np.array([t.numel() for t in tokens])
-    itr = task.build_epoch_itr(data.LanguagePairDataset(tokens, lengths, src_dict), 
-                               max_positions=models[0].max_positions(), ignore_invalid_inputs=False,
-                               max_sentences=args.max_sentences).next_epoch_itr(shuffle=False)
 
-    data.EpochBatchIterator(
-        dataset=,
-        max_sentences=args.max_sentences,
-        max_positions=max_positions,
-    ).next_epoch_itr(shuffle=False)
+    if args.task == 'translation' and args.story_outline_mode:
+        dataset = data.StoryOutlineDataset(tokens, lengths, src_dict)
+    else:
+        dataset = dataset.LanguagePairDataset(tokens, lengths, src_dict)
+
+    itr = task.build_epoch_itr(dataset, max_positions=max_positions, ignore_invalid_inputs=False,
+                               max_sentences=args.max_sentences, num_shards=args.num_shards,
+                               shard_id=args.shard_id).next_epoch_itr(shuffle=False)
+
     for batch in itr:
+        if len(batch) == 0:
+            continue
+
         yield Batch(
             srcs=[lines[i] for i in batch['id']],
             tokens=batch['net_input']['src_tokens'],
@@ -108,10 +112,12 @@ def main(args):
     # Load alignment dictionary for unknown word replacement
     # (None if no unknown word replacement, empty if no path to align dictionary)
     align_dict = utils.load_align_dict(args.replace_unk)
+    generated_texts = []
+    src_strings = []
 
     def make_result(src_str, hypos):
         result = Translation(
-            src_str='O\t{}'.format(src_str),
+            src_str=src_str,
             hypos=[],
             pos_scores=[],
             alignments=[],
@@ -128,7 +134,7 @@ def main(args):
                 tgt_dict=tgt_dict,
                 remove_bpe=args.remove_bpe,
             )
-            result.hypos.append('H\t{}\t{}'.format(hypo['score'], hypo_str))
+            result.hypos.append(hypo_str)
             result.pos_scores.append('P\t{}'.format(
                 ' '.join(map(
                     lambda x: '{:.4f}'.format(x),
@@ -170,11 +176,23 @@ def main(args):
         for i in np.argsort(indices):
             result = results[i]
             print(result.src_str)
-            for hypo, pos_scores, align in zip(result.hypos, result.pos_scores, result.alignments):
+            for hypo_index, (hypo, pos_scores, align) in enumerate(zip(result.hypos, result.pos_scores, result.alignments)):
                 print(hypo)
                 print(pos_scores)
                 if align is not None:
                     print(align)
+
+                if hypo_index == 0 and args.save_generated_file:
+                    generated_texts.append(hypo)
+                    src_strings.append(result.src_str)
+
+
+    if args.save_generated_file:
+        # Write new dataset to file.
+        with open(args.save_generated_file + ".generated_target", "w") as myfile:
+            myfile.write("\n".join(generated_texts))
+        with open(args.save_generated_file + ".generated_source", "w") as myfile:
+            myfile.write("\n".join(src_strings))
 
 
 if __name__ == '__main__':

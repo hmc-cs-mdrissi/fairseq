@@ -199,3 +199,76 @@ class Dictionary(object):
         t = torch.Tensor(length).uniform_(self.nspecial + 1, len(self)).long()
         t[-1] = self.eos()
         return t
+
+class SentenceCopyDictionary(Dictionary):
+    def finalize(self, threshold=-1, nwords=-1, padding_factor=8):
+        """Sort symbols by frequency in descending order, ignoring special ones. Also moves
+           all <sentence_i> tokens to the end in order of sentence number.
+
+        Args:
+            - threshold defines the minimum word count
+            - nwords defines the total number of words in the final dictionary,
+                including special symbols
+            - padding_factor can be used to pad the dictionary size to be a
+                multiple of 8, which is important on some hardware (e.g., Nvidia
+                Tensor Cores).
+        """
+        if nwords <= 0:
+            nwords = len(self)
+
+        new_indices = dict(zip(self.symbols[:self.nspecial], range(self.nspecial)))
+        new_symbols = self.symbols[:self.nspecial]
+        new_count = self.count[:self.nspecial]
+
+        c = Counter(dict(zip(self.symbols[self.nspecial:], self.count[self.nspecial:])))
+        for symbol, count in c.most_common(nwords - self.nspecial):
+            # sentence number tokens are dealt with separately in the next loop.
+            if symbol.startswith("<sentence_"):
+                continue
+            if count >= threshold:
+                new_indices[symbol] = len(new_symbols)
+                new_symbols.append(symbol)
+                new_count.append(count)
+            else:
+                break
+
+        num_sentence_tokens = 0
+
+        while True:
+            curr_sentence_index = self.index(f'<sentence_{num_sentence_tokens}>')
+
+            if curr_sentence_index == self.unk_index or self.count[curr_sentence_index] < threshold:
+                break
+            else:
+                num_sentence_tokens += 1
+
+        threshold_nwords = len(new_symbols) + num_sentence_tokens
+        if padding_factor > 1:
+            i = 0
+            while threshold_nwords % padding_factor != 0:
+                symbol = 'madeupword{:04d}'.format(i)
+                new_indices[symbol] = len(new_symbols)
+                new_symbols.append(symbol)
+                new_count.append(0)
+                i += 1
+                threshold_nwords += 1
+
+        curr_sentence_count = 0
+
+        while curr_sentence_count < num_sentence_tokens:
+            curr_sentence_token = f'<sentence_{curr_sentence_count}>'
+            curr_sentence_index = self.index(curr_sentence_token)
+            if curr_sentence_index == self.unk_index:
+                break
+            else:
+                new_indices[curr_sentence_token] = len(new_symbols)
+                new_symbols.append(curr_sentence_token)
+                new_count.append(self.count[curr_sentence_index])
+                curr_sentence_count += 1
+
+        assert len(new_symbols) % padding_factor == 0
+        assert len(new_symbols) == len(new_indices)
+
+        self.count = list(new_count)
+        self.symbols = list(new_symbols)
+        self.indices = new_indices

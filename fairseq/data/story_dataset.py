@@ -68,7 +68,8 @@ class StoryOutlineDataset(LanguagePairDataset, StoryDataset):
         else:
             indices = np.arange(len(self))
         indices = indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
-        indices = indices[np.argsort(self.tgt_sizes[indices], kind='mergesort')]
+        if self.tgt_sizes is not None:
+            indices = indices[np.argsort(self.tgt_sizes[indices], kind='mergesort')]
         return indices[np.argsort(self.paragraph_counts[indices], kind='mergesort')]
 
     def newline(self):

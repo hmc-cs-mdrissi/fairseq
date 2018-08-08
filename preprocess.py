@@ -39,21 +39,23 @@ def get_parser():
     parser.add_argument('--only-source', action='store_true', help='Only process the source language')
     parser.add_argument('--padding-factor', metavar='N', default=8, type=int,
                         help='Pad dictionary size to be multiple of N')
-    parser.add_argument('--tokenizer_name', metavar='N', default='default', choices=['default', 'nltk', 'sacremoses'],
+    parser.add_argument('--tokenizer_name', metavar='TOKENIZER', default='default', choices=['default', 'nltk', 'sacremoses'],
                         help="Which tokenizer to use. Choices are default, nltk, sacremoses. default tokenizes by splitting on white space. nltk uses "
                              "nltk's word_tokenize which better takes into account punctuation. As an example "
                              "'Hello, how's your day today?' would be tokenized as "
                              "['Hello,' , 'how's', 'your', 'day', 'today?'] when using the default, but would instead be tokenized as "
                              "['Hello', ',', 'how', ''s', 'your', 'day', 'today', '?'] when using nltk. The sacremoses tokenizer is from this package, "
                              "https://github.com/alvations/sacremoses.")
-    parser.add_argument('--max-source-length', metavar='N', type=int,
+    parser.add_argument('--max-source-length', metavar='N', type=int, default=None,
                         help="The maximum length of the source. If a sequence is longer it will be truncated to this length. " 
-                             "If -1, then no truncation occurs. For joined_dictionary's the maximum of the source/target max length will "
+                             "If None then no truncation occurs. For joined_dictionary's the maximum of the source/target max length will "
                              " be used to build the dictionary. Default is no truncation.")
-    parser.add_argument('--max-target-length', metavar='N', type=int,
+    parser.add_argument('--max-target-length', metavar='N', type=int, default=None,
                         help="The maximum length of the target. If a sequence is longer it will be truncated to this length. " 
-                             "If -1, then no truncation occurs. For joined_dictionary's the maximum of the source/target max length will "
+                             "If None then no truncation occurs. For joined_dictionary's the maximum of the source/target max length will "
                              "be used to build the dictionary. Default is no truncation.")
+    parser.add_argument('--dictionary-type', metavar='DICTIONARY', default='default', choices=['default', 'sentence_copy'],
+                        help="Which dictionary to use. Choices are default and sentence_copy.")
     return parser
 
 
@@ -63,9 +65,11 @@ def main(args):
     target = not args.only_source
     source_tokenizer = build_tokenizer(args, args.max_source_length)
     target_tokenizer = build_tokenizer(args, args.max_target_length)
+    dictionary_types = {'default': dictionary.Dictionary, 'sentence_copy': dictionary.SentenceCopyDictionary}
+    dictionary_type = dictionary_types[args.dictionary_type]
 
     def build_dictionary(tokenizer, filenames, max_length=None):
-        d = dictionary.Dictionary()
+        d = dictionary_type()
         for filename in filenames:
             tokenizer.add_file_to_dictionary(filename, d)
         return d
@@ -108,13 +112,13 @@ def main(args):
         tgt_dict = src_dict
     else:
         if args.srcdict:
-            src_dict = dictionary.Dictionary.load(args.srcdict)
+            src_dict = dictionary_type.load(args.srcdict)
         else:
             assert args.trainpref, "--trainpref must be set if --srcdict is not specified"
             src_dict = build_dictionary(source_tokenizer, [train_path(args.source_lang)])
         if target:
             if args.tgtdict:
-                tgt_dict = dictionary.Dictionary.load(args.tgtdict)
+                tgt_dict = dictionary_type.load(args.tgtdict)
             else:
                 assert args.trainpref, "--trainpref must be set if --tgtdict is not specified"
                 tgt_dict = build_dictionary(target_tokenizer, [train_path(args.target_lang)])
@@ -135,7 +139,7 @@ def main(args):
         tgt_dict.save(dict_path(args.target_lang))
 
     def make_binary_dataset(tokenizer, input_prefix, output_prefix, lang):
-        dict = dictionary.Dictionary.load(dict_path(lang))
+        dict = dictionary_type.load(dict_path(lang))
         print('| [{}] Dictionary: {} types'.format(lang, len(dict) - 1))
 
         ds = indexed_dataset.IndexedDatasetBuilder(dataset_dest_path(output_prefix, lang, 'bin'))
@@ -183,8 +187,8 @@ def main(args):
         assert args.trainpref, "--trainpref must be set if --alignfile is specified"
         src_file_name = train_path(args.source_lang)
         tgt_file_name = train_path(args.target_lang)
-        src_dict = dictionary.Dictionary.load(dict_path(args.source_lang))
-        tgt_dict = dictionary.Dictionary.load(dict_path(args.target_lang))
+        src_dict = dictionary_type.load(dict_path(args.source_lang))
+        tgt_dict = dictionary_type.load(dict_path(args.target_lang))
         freq_map = {}
         with open(args.alignfile, 'r') as align_file:
             with open(src_file_name, 'r') as src_file:

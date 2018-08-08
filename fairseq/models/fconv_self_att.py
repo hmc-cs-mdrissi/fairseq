@@ -188,7 +188,6 @@ class FConvEncoder(FairseqEncoder):
             self.convolutions.append(
                 ConvTBC(in_channels, out_channels * 2, kernel_size, dropout=dropout)
             )
-
             self.attention.append(
                 SelfAttention(out_channels, embed_dim, attention_nheads, project_input=project_input) if attention[i] else None
             )
@@ -231,7 +230,8 @@ class FConvEncoder(FairseqEncoder):
         x = self.fc2(x)
 
         # scale gradients (this only affects backward, not forward)
-        x = GradMultiply.apply(x, 1.0 / (2.0 * self.num_attention_layers))
+        if self.num_attention_layers > 0:
+            x = GradMultiply.apply(x, 1.0 / (2.0 * self.num_attention_layers))
 
         # add output to input embedding for attention
         y = (x + input_embedding.transpose(0, 1)) * math.sqrt(0.5)
@@ -283,13 +283,14 @@ class FConvDecoder(FairseqDecoder):
         hierarchical_attention=False, sentence_copy=False,
     ):
         super().__init__(dictionary)
-        self.register_buffer('version', torch.Tensor([2]))
         self.pretrained = pretrained
         self.pretrained_decoder = trained_decoder
         self.dropout = dropout
         self.left_pad = left_pad
         self.need_attn = True
+        self.sentence_copy = sentence_copy
         in_channels = convolutions[0][0]
+        self.register_buffer('version', torch.Tensor([2]))
 
         def expand_bool_array(val):
             if isinstance(val, bool):
@@ -305,7 +306,22 @@ class FConvDecoder(FairseqDecoder):
             raise ValueError('Attention is expected to be a list of booleans of '
                              'length equal to the number of layers.')
 
-        num_embeddings = len(dictionary)
+        if not isinstance(selfattention, list) or len(selfattention) != len(convolutions):
+            raise ValueError('Self Attention is expected to be a list of booleans of '
+                             'length equal to the number of layers.')
+
+        if not isinstance(hierarchical_attention, list) or len(hierarchical_attention) != len(convolutions):
+            raise ValueError('Hierarchical Attention is expected to be a list of booleans of '
+                             'length equal to the number of layers.')
+
+        assert(not sentence_copy or hierarchical_attention[-1])
+
+        if sentence_copy:
+            assert dictionary.index("<sentence_0>") != dictionary.unk()
+            num_embeddings = dictionary.index("<sentence_0>")
+        else:
+            num_embeddings = len(dictionary)
+
         padding_idx = dictionary.pad()
         self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
 
@@ -323,6 +339,9 @@ class FConvDecoder(FairseqDecoder):
         self.selfattention = nn.ModuleList()
         self.attproj = nn.ModuleList()
         for i, (out_channels, kernel_size) in enumerate(convolutions):
+            if hierarchical_attention[i] and not attention[i]:
+                raise ValueError("You can't have hierarchical attention at a layer without attention.")
+            
             self.projections.append(
                 Linear(in_channels, out_channels) if in_channels != out_channels else None
             )
@@ -332,10 +351,6 @@ class FConvDecoder(FairseqDecoder):
                     padding=(kernel_size - 1), dropout=dropout,
                 )
             )
-
-            if hierarchical_attention[i] and not attention[i]:
-                raise ValueError("You can't have hierarchical attention at a layer without attention.")
-
             self.attention.append(
                 DownsampledMultiHeadAttention(
                     out_channels, embed_dim, attention_nheads,
@@ -343,7 +358,6 @@ class FConvDecoder(FairseqDecoder):
                     hierarchical_attention=hierarchical_attention[i]
                 ) if attention[i] else None
             )
-
             self.attproj.append(
                 Linear(out_channels, embed_dim, dropout=dropout) if attention[i] else None
             )
@@ -358,6 +372,9 @@ class FConvDecoder(FairseqDecoder):
 
         self.fc2 = Linear(in_channels, out_embed_dim)
         self.fc3 = Linear(out_embed_dim, num_embeddings, dropout=dropout)
+
+        if self.sentence_copy:
+            self.sentence_gate = nn.Sequential(Linear(out_embed_dim, 1), nn.Sigmoid())
 
         # model fusion
         if self.pretrained:
@@ -410,6 +427,8 @@ class FConvDecoder(FairseqDecoder):
 
         # temporal convolutions
         avg_attn_scores = None
+        final_sentence_attn_scores = None
+
         for proj, conv, attention, selfattention, attproj in zip(
             self.projections, self.convolutions, self.attention, self.selfattention, self.attproj
         ):
@@ -422,9 +441,11 @@ class FConvDecoder(FairseqDecoder):
             # attention
             if attention is not None:
                 r = x
-                x, attn_scores, _ = attention(attproj(x) + target_embedding, encoder_a, encoder_b, 
-                                              sentence_value=sentence_value, all_chunk_sizes=all_chunk_sizes)
+                x, attn_scores, sentence_attn_scores = attention(attproj(x) + target_embedding, encoder_a, encoder_b, 
+                                                                 sentence_value=sentence_value, all_chunk_sizes=all_chunk_sizes)
                 x = x + r
+                final_sentence_attn_scores = sentence_attn_scores
+
                 if not self.training and self.need_attn:
                     if avg_attn_scores is None:
                         avg_attn_scores = attn_scores
@@ -442,6 +463,12 @@ class FConvDecoder(FairseqDecoder):
         # project back to size of vocabulary
         x = self.fc2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
+
+        if self.sentence_copy:
+            sentence_prob = self.sentence_gate(x) # B x T x 1
+            sentence_attn = sentence_prob * final_sentence_attn_scores
+            sentence_log_probs = torch.log(sentence_attn)
+
         if not self.pretrained:
             x = self.fc3(x)
 
@@ -456,9 +483,18 @@ class FConvDecoder(FairseqDecoder):
             fusion = torch.cat([gated_x1, gated_x2], dim=-1)
             fusion = self.joining(fusion)
             fusion_output = self.fc3(fusion)
-            return fusion_output, avg_attn_scores
+
+            if self.sentence_copy:
+                fusion_log_probs = F.log_softmax(fusion_output, dim=-1) + torch.log(1 - sentence_prob)
+                return torch.cat((fusion_log_probs, sentence_log_probs), 2), avg_attn_scores
+            else:
+                return fusion_output, avg_attn_scores
         else:
-            return x, avg_attn_scores
+            if self.sentence_copy:
+                word_log_probs = F.log_softmax(x, dim=-1) + torch.log(1 - sentence_prob)
+                return torch.cat((word_log_probs, sentence_log_probs), 2), avg_attn_scores
+            else:
+                return x, avg_attn_scores
 
     def max_positions(self):
         """Maximum output length supported by the decoder."""
@@ -475,6 +511,17 @@ class FConvDecoder(FairseqDecoder):
         encoder_b = encoder_b.transpose(0, 1).contiguous()
         result = (encoder_a, encoder_b)
         return result
+
+    def get_normalized_probs(self, net_output, log_probs, sample):
+        """Get normalized probabilities (or log probs) from a net's output."""
+
+        if self.sentence_copy:
+            if log_probs:
+                return net_output[0]
+            else:
+                return torch.exp(net_output[0])
+        else:
+            return super().get_normalized_probs(net_output, log_probs, sample)
 
 
 class SelfAttention(nn.Module):
@@ -522,7 +569,7 @@ def reduce_sum_at(ids, values, delimiter_value):
 
         sentence_vecs.append(torch.stack(list(map(lambda sentence_values: sentence_values.mean(dim=0), 
                                                   values_row.split(chunk_sizes, dim=0)))))
-        all_chunk_sizes.append(torch.LongTensor(chunk_sizes))
+        all_chunk_sizes.append(torch.tensor(chunk_sizes, device=values.device))
 
     return torch.stack(sentence_vecs), torch.stack(all_chunk_sizes) # B x S x C, B x S
 

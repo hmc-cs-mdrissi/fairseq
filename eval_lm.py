@@ -41,6 +41,7 @@ def main(args):
 
     itr = task.build_epoch_itr(task.dataset(args.gen_subset), max_positions=models[0].max_positions(), 
                                ignore_invalid_inputs=True, max_sentences=args.max_sentences,
+                               num_shards=args.num_shards, shard_id=args.shard_id,
                                max_tokens=args.max_tokens or 36000).next_epoch_itr(shuffle=False)
 
     gen_timer = StopwatchMeter()

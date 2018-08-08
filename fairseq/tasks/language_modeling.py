@@ -93,8 +93,8 @@ class LanguageModelingTask(FairseqTask):
         return EpochBatchIterator(dataset=dataset, max_tokens=max_tokens or self.args.max_tokens,
                                   max_sentences=max_sentences, max_positions=max_positions,
                                   ignore_invalid_inputs=ignore_invalid_inputs, required_batch_size_multiple=8,
-                                  seed=self.args.seed, num_shards=len(self.args.distributed_world_ranks),
-                                  shard_id=self.args.distributed_rank,
+                                  seed=self.args.seed, num_shards=num_shards,
+                                  shard_id=shard_id,
                                   )
 
     @property

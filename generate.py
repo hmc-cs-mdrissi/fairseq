@@ -59,7 +59,8 @@ def main(args):
     # Load dataset (possibly sharded)
     itr = task.build_epoch_itr(task.dataset(args.gen_subset), max_positions=models[0].max_positions(), 
                                ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-                               max_sentences=args.max_sentences).next_epoch_itr(shuffle=False)
+                               max_sentences=args.max_sentences, num_shards=args.num_shards, 
+                               shard_id=args.shard_id).next_epoch_itr(shuffle=False)
 
     # Initialize generator
     gen_timer = StopwatchMeter()
@@ -80,6 +81,9 @@ def main(args):
     scorer = bleu.Scorer(tgt_dict.pad(), tgt_dict.eos(), tgt_dict.unk())
     num_sentences = 0
     has_target = True
+    generated_texts = []
+    src_strings = []
+
     with progress_bar.build_progress_bar(args, itr) as t:
         if args.score_reference:
             translations = translator.score_batched_itr(t, cuda=use_cuda, timer=gen_timer)
@@ -143,10 +147,21 @@ def main(args):
                         # Convert back to tokens for evaluation with unk replacement and/or without BPE
                         target_tokens = tokenizer_tool.tokenize(target_str, tgt_dict, add_if_not_exist=True)
                     scorer.add(target_tokens, hypo_tokens)
+                    
+                    if args.save_generated_file:
+                        generated_texts.append(tgt_dict.string(hypo_tokens, args.remove_bpe, escape_unk=False))
+                        src_strings.append(src_str)
 
             wps_meter.update(src_tokens.size(0))
             t.log({'wps': round(wps_meter.avg)})
             num_sentences += 1
+
+    if args.save_generated_file:
+        # Write new dataset to file.
+        with open(args.save_generated_file + ".generated_target", "w") as myfile:
+            myfile.write("\n".join(generated_texts))
+        with open(args.save_generated_file + ".generated_source", "w") as myfile:
+            myfile.write("\n".join(src_strings))
 
     print('| Translated {} sentences ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))

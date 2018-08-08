@@ -310,6 +310,8 @@ def add_generation_args(parser):
                        help='if set, uses attention feedback to compute and print alignment to source tokens')
     group.add_argument('--model-overrides', default="{}", type=str, metavar='DICT',
                        help='a dictionary used to override model args at generation that were used during model training')
+    group.add_argument('--save-generated-file', default=False, metavar='FILE',
+                       help='filename to save generated outputs (by default outputs are not saved)')
     return group
 
 
